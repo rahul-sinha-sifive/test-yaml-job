@@ -1,0 +1,170 @@
+#!groovy
+
+// Runs on jenkins serial/parallel jobs as defined by YAML_FILE and PARALLEL_EXECUTION
+
+def common
+def context
+def skipAll = false
+def parallelExecution = (env.PARALLEL_EXECUTION ?: false).toBoolean()
+def displayBranch = env.DISPLAY_BRANCH ?: 'Master'
+def slurmAccount = env.SLURM_ACCOUNT ?: 'default'
+def threads = [:]
+def prID =  env.PR_ID ?: 0
+def owner = env.OWNER ?: 'jenkins'
+// slurmNodesToKill used to store nodes to disconnect at end of script.
+// TODO Note confirm these nodes are set to 1 executor otherwise we will
+// run into intermittent problems (consider using node.getNumExecutors())
+def slurmNodesToKill = []
+def nodeAgentUseDisconnect = (env.NODE_AGENT_USE_DISCONNECT ?: false).toBoolean()
+
+currentBuild.displayName = env.DISPLAY_NAME ? "${env.BUILD_NUMBER} - ${env.DISPLAY_NAME} - Pending" : "${env.BUILD_NUMBER} - Branch: ${displayBranch} PR: ${prID.toInteger()} Owner: ${owner} - Pending"
+
+// Define a closure that will be later used to create threads
+def runCommandOnNode = {String command, String nodeLabel, String threadName ->
+  node("master") {
+    def dir = "/scratch/${env.USER}/archived-builds/${env.JOB_NAME}/${env.BUILD_ID}/${threadName}"
+      stage(threadName) {
+        ws(dir) {
+          common.setDisplayName(currentBuild, context, "Running")
+          if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusPending(), context.commit, env, env.RUN_DISPLAY_URL) }
+          common.printJobDetails()
+          common.scdCheckout(context.commit, "origin/${context.baseBranch}", context, env)
+          common.keepWorkspace(context)
+          common.printSCDDetails(context)
+          // save any errors/exceptions and rethrow *after* the steps in 'finally' finish
+          def savedExc = null
+          timeout(time: context.timeoutBuildMin, unit: 'MINUTES') {
+            try {
+              // set all three variables - from SLURM_ACCOUNT
+              println("Setting Slurm Account to [${slurmAccount}]")
+              env.SLURM_ACCOUNT = slurmAccount
+              env.SALLOC_ACCOUNT = slurmAccount
+              env.SBATCH_ACCOUNT = slurmAccount
+              String cmdline = "${environment_variables} ${common.prependTimeCmd(command)}".trim()
+              sh script: cmdline, label: "Run Test: '${command}'"    // throws exception on failure
+            } catch (Exception e) {
+                currentBuild.result = 'FAILURE'
+                if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusFailure(), context.commit, env, env.RUN_DISPLAY_URL) }
+                if (context.notifySlack) { common.notifySlack(threadName, env, context.slackChannel) }
+                savedExc = e
+            }
+            finally {
+              common.workspaceCleanup(context.keepOnSuccess)
+              common.killSlurmJobs(env)
+              if (!nodeAgentUseDisconnect) {
+                  common.killJenkinsAgent()
+              } else {
+                  slurmNodeToKill = Jenkins.instance.getNode(env.NODE_NAME)
+                  common.markSpecificNodeOffline(slurmNodeToKill, "Temporarily offline to prevent execution of new tasks", "NODE_AGENT_USE_DISCONNECT: ")
+                  slurmNodesToKill.add(slurmNodeToKill)
+                  print("NODE_AGENT_USE_DISCONNECT: Node stored ${slurmNodeToKill.getNodeName()}")
+              }
+            }
+          }
+          if (savedExc != null) {
+            error("${threadName} FAILED: ${savedExc}")
+            throw savedExc
+          }
+        } // ws
+      } // stage
+  } // node
+}
+
+ansiColor('xterm') {
+  try {
+    stage('Checkout') {
+      node("master") {
+        def host = sh(script: 'set +x; echo $HOSTNAME', returnStdout: true).trim()
+        println "Stage: ${env.STAGE_NAME} Hostname: ${host}"
+        deleteDir()
+
+        checkout(scm)
+        echo "Commit to Test: ${GIT_COMMIT}"
+
+        // Dynamically load common Jenkinsfile scripts, which can only happen within a node block.
+        common = load 'jenkins/common.groovy'
+
+        context = common.JobContext()
+        common.initTimeoutParams(context, params.JOB_TIMEOUT, "JOB_TIMEOUT", 30, common.enumTimeoutUnitsMinutes())
+        context.commit = GIT_COMMIT
+        context.notifyGithubStatus = (env.NOTIFY_GITHUB_STATUS ?: false).toBoolean()
+        context.notifySlack = (env.NOTIFY_SLACK ?: false).toBoolean()
+        if (env.BASE_BRANCH) { context.baseBranch = env.BASE_BRANCH }
+        context.pr_id = prID.toInteger()
+        context.owner = owner
+        if (env.SLACK_CHANNEL) { context.slackChannel = env.SLACK_CHANNEL }
+        if (env.NODE_LABEL) { context.nodeLabel = env.NODE_LABEL }
+        context.keepOnSuccess = (env.KEEP_ON_SUCCESS ?: true).toBoolean()
+
+        common.recordPrId(currentBuild, context.pr_id, true)
+
+        common.setDisplayName(currentBuild, context, "Checkout")
+
+        if (!env.YAML_FILE) {
+          if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusFailure(), context.commit, env, env.RUN_DISPLAY_URL) }
+          common.setDisplayName(currentBuild, context, "Failed")
+          error "No Run File Provided, so cannot run ANYTHING!"
+        }
+
+        if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusPending(), context.commit, env, env.RUN_DISPLAY_URL) }
+
+        common.killDuplicateBuildsNoStage()
+
+        if (parallelExecution) {
+          // Create a thread commands that will be executed in Run Stage
+          // 'threads' will be executed by the 'parallel' statement.
+          // Read in yaml file that has list of commands to run in Parallel
+          def buckets = readFile("${env.WORKSPACE}/${env.YAML_FILE}")
+
+          // Extract job names
+          def jobs = buckets.jobs.collect { job -> job.value.name}
+
+          // Iterate over each job
+          jobs.each { jobname ->
+              // Store name field in 'jobname' variable
+              def nameField = yamlData.jobs[jobname].name
+
+              // Store run field in 'command' variable
+              def command = yamlData.jobs[jobname].run
+
+              // Assign a closure to 'threads' map for each job
+              threads[jobname] = {
+                  runCommandOnNode(command, context.nodeLabel, jobname)
+              }
+          }          
+        }
+      }
+    }
+
+    if (skipAll) {
+        // 'return' must happen outside of a 'stage' to stop the whole build
+        common.setDisplayName(currentBuild, context, "Filter Skipped")
+        return
+    }
+
+    if (parallelExecution) {
+      parallel threads
+    } else {
+      runCommandOnNode(env.YAML_FILE, context.nodeLabel, "run-tests");
+    }
+
+    stage('Report') {
+      node("master") {
+        def host = sh(script: 'set +x; echo $HOSTNAME', returnStdout: true).trim()
+        println "Stage: ${env.STAGE_NAME} Hostname: ${host}"
+        if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusSuccess(), context.commit, env, env.RUN_DISPLAY_URL) }
+        echo "SUCCESS"
+      }
+    }
+  } finally {
+    if (nodeAgentUseDisconnect) {
+        print("NODE_AGENT_USE_DISCONNECT: Disconnect saved nodes and mark back online")
+        slurmNodesToKill.each {
+            // disconnecting node will stop the jenkins agent which will stop the slurm job as the jenkins agent is the only thing running in the slrum job
+            common.disconnectSpecificNode(it, "disconnect node now jobs has finished", "NODE_AGENT_USE_DISCONNECT: ")
+            // mark node back online to allow jenkins to bring the node back up again when demand is needed.
+            common.markSpecificNodeOnline(it, "mark available again", "NODE_AGENT_USE_DISCONNECT: ")
+        }
+    }
+  }
+} // ansiColor
