@@ -1,0 +1,56 @@
+name: Test
+
+on:
+  push:
+    branches:
+    - main
+    - 'release-*'
+    - 'aws_release_*'
+    - aws-release-unstable
+    - aws-release-dev
+
+  pull_request:
+
+env:
+  Check_Timeout_Minutes: 15
+  Unit_Test_Timeout_Minutes: 15
+  Lint_Timeout_Minutes: 10
+  E2E_Timeout_Minutes: 30
+
+jobs:
+
+  lint-py:
+      name: Lint Python
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - name: lint-py
+          timeout-minutes: ${{ fromJSON(env.Lint_Timeout_Minutes) }}
+          run: echo "Running Lint python"
+
+  lint-js:
+      name: Lint JavaScript
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - name: lint-js
+          timeout-minutes: ${{ fromJSON(env.Lint_Timeout_Minutes) }}
+          run: echo "Running Lint javascript"
+  
+  lint-css:
+      name: Lint CSS
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - name: lint-css
+          timeout-minutes: ${{ fromJSON(env.Lint_Timeout_Minutes) }}
+          run: echo "Running Lint CSS"
+
+  check-ts:
+      name: Check TypeScript build
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v3
+        - name: check-ts
+          timeout-minutes: ${{ fromJSON(env.Check_Timeout_Minutes) }}
+          run: echo "Running Typescript build"
