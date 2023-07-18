@@ -115,9 +115,9 @@ ansiColor('xterm') {
           // 'threads' will be executed by the 'parallel' statement.
           // Read in yaml file that has list of commands to run in Parallel
           def buckets = readFile("${env.WORKSPACE}/${env.YAML_FILE}")
-
+          def yamlData = readYaml(text: buckets)
           // Extract job names
-          def jobs = buckets.jobs.collect { job -> job.value.name}
+          def jobs = yamlData.jobs.collect { key, value -> key}
 
           // Iterate over each job
           jobs.each { jobname ->
