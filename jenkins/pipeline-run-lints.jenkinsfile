@@ -21,7 +21,7 @@ currentBuild.displayName = env.DISPLAY_NAME ? "${env.BUILD_NUMBER} - ${env.DISPL
 
 // Define a closure that will be later used to create threads
 def runCommandOnNode = {String command, String nodeLabel, String threadName ->
-  node("master") {
+  node("built-in") {
     def dir = "/scratch/${env.USER}/archived-builds/${env.JOB_NAME}/${env.BUILD_ID}/${threadName}"
       stage(threadName) {
         ws(dir) {
@@ -73,7 +73,7 @@ def runCommandOnNode = {String command, String nodeLabel, String threadName ->
 ansiColor('xterm') {
   try {
     stage('Checkout') {
-      node("master") {
+      node("built-in") {
         def host = sh(script: 'set +x; echo $HOSTNAME', returnStdout: true).trim()
         println "Stage: ${env.STAGE_NAME} Hostname: ${host}"
         deleteDir()
@@ -149,7 +149,7 @@ ansiColor('xterm') {
     }
 
     stage('Report') {
-      node("master") {
+      node("built-in") {
         def host = sh(script: 'set +x; echo $HOSTNAME', returnStdout: true).trim()
         println "Stage: ${env.STAGE_NAME} Hostname: ${host}"
         if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusSuccess(), context.commit, env, env.RUN_DISPLAY_URL) }
