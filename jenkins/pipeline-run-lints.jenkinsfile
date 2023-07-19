@@ -138,10 +138,8 @@ ansiColor('xterm') {
     }
 
     stage('Build Podman Images') {
-      steps {
         sh 'echo "Build Podman Images"'
           // sh 'podman-compose up -d db redis web'
-      }
     }
 
     if (parallelExecution) {
@@ -151,10 +149,8 @@ ansiColor('xterm') {
     }
 
     stage('Clean Containers, Images and Volumes') {
-      steps {
         sh 'echo "Clean Containers, Images and Volumes"'
           // sh 'podman-compose down'
-      }
     }
 
     stage('Report') {
