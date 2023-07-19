@@ -104,7 +104,7 @@ ansiColor('xterm') {
         if (!env.YAML_FILE) {
           if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusFailure(), context.commit, env, env.RUN_DISPLAY_URL) }
           common.setDisplayName(currentBuild, context, "Failed")
-          error "No Run File Provided, so cannot run ANYTHING!"
+          error "No YAML File Provided, so cannot run ANYTHING!"
         }
 
         if (context.notifyGithubStatus) { common.sendGitHubStatus(common.enumGitHubStatusPending(), context.commit, env, env.RUN_DISPLAY_URL) }
@@ -130,7 +130,7 @@ ansiColor('xterm') {
 
               // Assign a closure to 'threads' map for each job
               threads[jobname] = {
-                  runCommandOnNode(command, context.nodeLabel, jobname)
+                  runCommandOnNode(command, context.nodeLabel, nameField)
               }
           }          
         }
