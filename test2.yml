@@ -1,0 +1,28 @@
+name: Test
+
+on:
+  push:
+    branches:
+    - main
+    - 'release-*'
+    - 'aws_release_*'
+    - aws-release-unstable
+    - aws-release-dev
+
+  pull_request:
+
+env:
+  Check_Timeout_Minutes: 15
+  Unit_Test_Timeout_Minutes: 15
+  Lint_Timeout_Minutes: 10
+  E2E_Timeout_Minutes: 30
+
+jobs:
+
+  lint-py:
+      name: Lint Python
+      run: echo "Running Lint python"
+
+  lint-js:
+      name: Lint JavaScript
+      run: echo "Running Lint javascript"
