@@ -136,16 +136,24 @@ ansiColor('xterm') {
       }
     }
 
-    if (skipAll) {
-        // 'return' must happen outside of a 'stage' to stop the whole build
-        common.setDisplayName(currentBuild, context, "Filter Skipped")
-        return
+    stage('Build Podman Images') {
+      steps {
+        sh 'echo "Build Podman Images"'
+          // sh 'podman-compose up -d db redis web'
+      }
     }
 
     if (parallelExecution) {
       parallel threads
     } else {
       runCommandOnNode(env.YAML_FILE, context.nodeLabel, "run-tests");
+    }
+
+    stage('Clean Containers, Images and Volumes') {
+      steps {
+        sh 'echo "Clean Containers, Images and Volumes"'
+          // sh 'podman-compose down'
+      }
     }
 
     stage('Report') {
