@@ -40,6 +40,7 @@ def runCommandOnNode = {String command, String nodeLabel, String threadName ->
               env.SLURM_ACCOUNT = slurmAccount
               env.SALLOC_ACCOUNT = slurmAccount
               env.SBATCH_ACCOUNT = slurmAccount
+              String environment_variables = params.ENVIRONMENT_VARIABLES ?: ""
               String cmdline = "${environment_variables} ${common.prependTimeCmd(command)}".trim()
               sh script: cmdline, label: "Run Test: '${command}'"    // throws exception on failure
             } catch (Exception e) {
